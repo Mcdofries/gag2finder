@@ -1,181 +1,377 @@
--- Grow a Garden 2 - Wild Pet Finder ULTRA
+-- GAG2 Pet Finder ULTRA v6
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
 
--- ============ CONFIG ============
+-- CONFIG
 local WEBHOOK = "https://discord.com/api/webhooks/1497998833974775910/daQqHT3kS2DRrW0ehvSmhakGHbkZJLtv2bnl0-h7WFLYscCoT1L2sgN_W-cMGPeLRWlJ"
-local PLACE_ID = 142823291
+local PLACE_ID = 97598239454123
 local MIN_RARITY = "common"
-local PING_ON = {"mythic","super"}
-local SCAN_DURATION = 10        -- only 10 seconds per server
-local MIN_PLAYERS = 6
-local MAX_PLAYERS = 30
-local SCRIPT_URL = "https://raw.githubusercontent.com/Mcdofries/gag2finder/refs/heads/main/petfinder"  -- CHANGE THIS!
+local PING_ON = {"mythic","super","big","rainbow","mythical"}
+local MIN_PLAYERS = 3
+local MAX_PLAYERS = 25
+local SCRIPT_URL = "https://raw.githubusercontent.com/Mcdofries/gag2finder/refs/heads/main/petfinder"
+local VERCEL = "https://gag2joiner.vercel.app/api/joiner"
 
--- ============ HTTP ============
-local httpRequest = (syn and syn.request) or http_request or request 
-                 or (fluxus and fluxus.request) or krnl_request 
-                 or (getgenv and getgenv().request)
+-- HTTP
+local req = (syn and syn.request) or http_request or request
+          or (fluxus and fluxus.request) or (getgenv and getgenv().request)
 
--- ============ AUTO EXECUTE (writes to autoexec folder) ============
-local autoExecCode = 'task.wait(3) loadstring(game:HttpGet("'..SCRIPT_URL..'"))()'
+-- AUTO EXEC
+local execCode = 'task.wait(3) loadstring(game:HttpGet("'..SCRIPT_URL..'"))()'
 pcall(function()
     if writefile then
-        -- Try multiple autoexec folder names
-        local paths = {
-            "autoexec/GAG2_PetFinder.lua",
-            "auto_execute/GAG2_PetFinder.lua",
-            "autoexecute/GAG2_PetFinder.lua",
-            "AutoExec/GAG2_PetFinder.lua",
-        }
-        for _, p in ipairs(paths) do
-            pcall(function() writefile(p, autoExecCode) end)
+        for _, p in ipairs({"autoexec/GAG2.lua","auto_execute/GAG2.lua","AutoExec/GAG2.lua"}) do
+            pcall(function() writefile(p, execCode) end)
         end
     end
 end)
 
--- Queue on teleport (instant re-execute after hop)
 local function queueScript()
     pcall(function()
-        if queue_on_teleport then queue_on_teleport(autoExecCode)
-        elseif syn and syn.queue_on_teleport then syn.queue_on_teleport(autoExecCode)
-        elseif fluxus and fluxus.queue_on_teleport then fluxus.queue_on_teleport(autoExecCode)
-        elseif queueonteleport then queueonteleport(autoExecCode)
+        if queue_on_teleport then queue_on_teleport(execCode)
+        elseif syn and syn.queue_on_teleport then syn.queue_on_teleport(execCode)
+        elseif fluxus and fluxus.queue_on_teleport then fluxus.queue_on_teleport(execCode)
+        elseif queueonteleport then queueonteleport(execCode)
         end
     end)
 end
 
--- ============ PETS ============
+-- PETS
 local PETS = {
-    Frog             = {rarity="Common",    rank=1, color=7506394},
-    Bunny            = {rarity="Common",    rank=1, color=7506394},
-    Owl              = {rarity="Uncommon",  rank=2, color=3066993},
-    Deer             = {rarity="Rare",      rank=3, color=3447003},
-    Robin            = {rarity="Legendary", rank=4, color=15844367},
-    Bee              = {rarity="Legendary", rank=4, color=15844367},
-    Monkey           = {rarity="Mythic",    rank=5, color=15105570},
-    Golden_Dragonfly = {rarity="Mythic",    rank=5, color=15105570, display="Golden Dragonfly"},
-    Unicorn          = {rarity="Mythic",    rank=5, color=15105570},
-    Raccoon          = {rarity="Super",     rank=6, color=15158332},
-    Black_Dragon     = {rarity="Super",     rank=6, color=15158332, display="Black Dragon"},
-    Ice_Serpent      = {rarity="Super",     rank=6, color=15158332, display="Ice Serpent"},
+    Frog={rarity="Common",rank=1,color=7506394},
+    Bunny={rarity="Common",rank=1,color=7506394},
+    Owl={rarity="Uncommon",rank=2,color=3066993},
+    Deer={rarity="Rare",rank=3,color=3447003},
+    Robin={rarity="Legendary",rank=4,color=15844367},
+    Bee={rarity="Legendary",rank=4,color=15844367},
+    Monkey={rarity="Mythic",rank=5,color=15105570},
+    Golden_Dragonfly={rarity="Mythic",rank=5,color=15105570,display="Golden Dragonfly"},
+    Unicorn={rarity="Mythic",rank=5,color=15105570},
+    Raccoon={rarity="Super",rank=6,color=15158332},
+    Black_Dragon={rarity="Super",rank=6,color=15158332,display="Black Dragon"},
+    Ice_Serpent={rarity="Super",rank=6,color=15158332,display="Ice Serpent"},
 }
-
-local RANKS = {common=1,uncommon=2,rare=3,legendary=4,mythic=5,super=6}
+local RANKS = {common=1,uncommon=2,rare=3,legendary=4,mythic=5,super=6,big=7,mythical=8,rainbow=9}
+local MODS = {
+    big={rank=7,color=16753920,emoji="🟧"},
+    mythical={rank=8,color=10181046,emoji="🟪"},
+    rainbow={rank=9,color=16777215,emoji="🌈"},
+}
 local MIN_RANK = RANKS[MIN_RARITY] or 1
 
--- ============ STATE ============
+-- STATE
 local lp = Players.LocalPlayer
 local sessionStart = os.time()
-local serversHopped = 0
-local totalFound = 0
-local notified = {}
+local hops, found = 0, 0
+local notified, triedServers, serverCache = {}, {}, {}
 local hopping = false
+local guiStatus = "Starting..."
+local statusLbl, hopsLbl, foundLbl, srvLbl, uptimeLbl, petList
 
--- ============ UTILS ============
+pcall(function()
+    if isfile and isfile("gag2s.json") then
+        local d = HttpService:JSONDecode(readfile("gag2s.json"))
+        if d then hops=d.h or 0; found=d.f or 0; sessionStart=d.t or os.time() end
+    end
+end)
+
+local function saveStats()
+    pcall(function()
+        if writefile then writefile("gag2s.json",HttpService:JSONEncode({h=hops,f=found,t=sessionStart})) end
+    end)
+end
+
+-- UTILS
 local function log(m,t)
     local i={INFO="ℹ️",OK="✅",ERR="❌",PET="🐾",HOP="🔄"}
     print(os.date("[%H:%M:%S]").." "..(i[t] or "📌").." "..m)
 end
 
-local function uptime()
-    local e=os.time()-sessionStart
-    return ("%02d:%02d:%02d"):format(e/3600,e%3600/60,e%60)
-end
+local function setStatus(s) guiStatus=s end
 
 local function shouldPing(r)
-    for _,v in ipairs(PING_ON) do
-        if v==r:lower() then return true end
-    end
+    r=r:lower()
+    for _,v in ipairs(PING_ON) do if r:find(v) then return true end end
 end
 
-local function sendWebhook(body)
-    if not httpRequest then return false end
+local function sendWH(body)
+    if not req then return false end
     return pcall(function()
-        httpRequest({
-            Url = WEBHOOK, Method = "POST",
-            Headers = {["Content-Type"]="application/json"},
-            Body = HttpService:JSONEncode(body)
-        })
+        req({Url=WEBHOOK,Method="POST",
+            Headers={["Content-Type"]="application/json"},
+            Body=HttpService:JSONEncode(body)})
     end)
 end
 
--- ============ PET EXTRACTION ============
-local function getPetInfo(objName)
-    local rest = objName:gsub("^WildPet_","")
-    local petPart = rest:match("^(.-)_WildPet_")
-    if not petPart then return nil end
-    local data = PETS[petPart]
-    if data then return data.display or petPart, data end
+-- GUI
+local function createGUI()
+    pcall(function()
+        if CoreGui:FindFirstChild("G2PF") then CoreGui.G2PF:Destroy() end
+    end)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "G2PF"
+    sg.ResetOnSpawn = false
+    pcall(function()
+        if syn and syn.protect_gui then syn.protect_gui(sg) end
+        sg.Parent = (gethui and gethui()) or CoreGui
+    end)
+    local main = Instance.new("Frame")
+    main.Size = UDim2.new(0,270,0,310)
+    main.Position = UDim2.new(0,10,0,100)
+    main.BackgroundColor3 = Color3.fromRGB(18,18,28)
+    main.BorderSizePixel = 0
+    main.Active = true
+    main.Draggable = true
+    main.Parent = sg
+    Instance.new("UICorner",main).CornerRadius = UDim.new(0,10)
+    local sk = Instance.new("UIStroke",main)
+    sk.Color = Color3.fromRGB(80,200,80)
+    sk.Thickness = 2
+    -- title bar
+    local tb = Instance.new("Frame")
+    tb.Size = UDim2.new(1,0,0,34)
+    tb.BackgroundColor3 = Color3.fromRGB(35,90,35)
+    tb.BorderSizePixel = 0
+    tb.Parent = main
+    Instance.new("UICorner",tb).CornerRadius = UDim.new(0,10)
+    local tbf = Instance.new("Frame")
+    tbf.Size = UDim2.new(1,0,0.5,0)
+    tbf.Position = UDim2.new(0,0,0.5,0)
+    tbf.BackgroundColor3 = Color3.fromRGB(35,90,35)
+    tbf.BorderSizePixel = 0
+    tbf.Parent = tb
+    local ttl = Instance.new("TextLabel")
+    ttl.Size = UDim2.new(1,-40,1,0)
+    ttl.Position = UDim2.new(0,10,0,0)
+    ttl.BackgroundTransparency = 1
+    ttl.Text = "🌱 GAG2 Pet Finder"
+    ttl.TextColor3 = Color3.new(1,1,1)
+    ttl.TextSize = 15
+    ttl.Font = Enum.Font.GothamBold
+    ttl.TextXAlignment = Enum.TextXAlignment.Left
+    ttl.Parent = tb
+    local mb = Instance.new("TextButton")
+    mb.Size = UDim2.new(0,28,0,28)
+    mb.Position = UDim2.new(1,-32,0,3)
+    mb.BackgroundColor3 = Color3.fromRGB(200,50,50)
+    mb.Text = "-"
+    mb.TextColor3 = Color3.new(1,1,1)
+    mb.TextSize = 18
+    mb.Font = Enum.Font.GothamBold
+    mb.Parent = tb
+    Instance.new("UICorner",mb).CornerRadius = UDim.new(0,5)
+    -- content
+    local ct = Instance.new("Frame")
+    ct.Size = UDim2.new(1,-16,1,-42)
+    ct.Position = UDim2.new(0,8,0,38)
+    ct.BackgroundTransparency = 1
+    ct.Parent = main
+    local function mkLbl(txt,y,col)
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(1,0,0,17)
+        l.Position = UDim2.new(0,0,0,y)
+        l.BackgroundTransparency = 1
+        l.Text = txt
+        l.TextColor3 = col or Color3.fromRGB(220,220,220)
+        l.TextSize = 12
+        l.Font = Enum.Font.Gotham
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.Parent = ct
+        return l
+    end
+    statusLbl = mkLbl("⏳ Starting...",0,Color3.fromRGB(100,255,100))
+    srvLbl    = mkLbl("🌐 Server: -",19,Color3.fromRGB(150,200,255))
+    hopsLbl   = mkLbl("🔄 Hops: 0",38,Color3.fromRGB(255,200,100))
+    foundLbl  = mkLbl("🐾 Found: 0",57,Color3.fromRGB(255,150,200))
+    uptimeLbl = mkLbl("⏱️ 00:00:00",76,Color3.fromRGB(200,200,200))
+    local div = Instance.new("Frame")
+    div.Size = UDim2.new(1,0,0,1)
+    div.Position = UDim2.new(0,0,0,100)
+    div.BackgroundColor3 = Color3.fromRGB(70,70,70)
+    div.BorderSizePixel = 0
+    div.Parent = ct
+    local ptl = mkLbl("🎯 Pets This Server:",106,Color3.fromRGB(255,255,80))
+    ptl.Font = Enum.Font.GothamBold
+    petList = Instance.new("ScrollingFrame")
+    petList.Size = UDim2.new(1,0,1,-130)
+    petList.Position = UDim2.new(0,0,0,126)
+    petList.BackgroundColor3 = Color3.fromRGB(12,12,18)
+    petList.BorderSizePixel = 0
+    petList.ScrollBarThickness = 3
+    petList.CanvasSize = UDim2.new(0,0,0,0)
+    petList.Parent = ct
+    Instance.new("UICorner",petList).CornerRadius = UDim.new(0,5)
+    local ul = Instance.new("UIListLayout")
+    ul.Padding = UDim.new(0,2)
+    ul.SortOrder = Enum.SortOrder.LayoutOrder
+    ul.Parent = petList
+    local up = Instance.new("UIPadding")
+    up.PaddingTop = UDim.new(0,4)
+    up.PaddingLeft = UDim.new(0,4)
+    up.Parent = petList
+    -- minimize
+    local mini = false
+    mb.MouseButton1Click:Connect(function()
+        mini = not mini
+        main:TweenSize(
+            mini and UDim2.new(0,270,0,34) or UDim2.new(0,270,0,310),
+            Enum.EasingDirection.Out,Enum.EasingStyle.Quad,0.25,true)
+        mb.Text = mini and "+" or "-"
+    end)
 end
 
-local function getLabel(petObj, bbName)
-    local ok, txt = pcall(function()
-        local rp = petObj:FindFirstChild("RootPart")
+local function updateGUI()
+    pcall(function()
+        local e = os.time()-sessionStart
+        if statusLbl then statusLbl.Text="⏳ "..guiStatus end
+        if srvLbl then srvLbl.Text="🌐 "..game.JobId:sub(1,14).."..." end
+        if hopsLbl then hopsLbl.Text="🔄 Hops: "..hops end
+        if foundLbl then foundLbl.Text="🐾 Found: "..found end
+        if uptimeLbl then uptimeLbl.Text=("⏱️ %02d:%02d:%02d"):format(e/3600,e%3600/60,e%60) end
+    end)
+end
+
+local function addPetGUI(name,rarity,color)
+    pcall(function()
+        if not petList then return end
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(1,-8,0,20)
+        l.BackgroundColor3 = Color3.fromRGB(30,30,42)
+        l.BorderSizePixel = 0
+        l.Text = "  🐾 "..name.." ["..rarity.."]"
+        l.TextColor3 = Color3.new(1,1,1)
+        l.TextSize = 11
+        l.Font = Enum.Font.Gotham
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.Parent = petList
+        Instance.new("UICorner",l).CornerRadius = UDim.new(0,4)
+        if color then
+            local sk = Instance.new("UIStroke",l)
+            sk.Color = Color3.fromRGB(color/65536%256,color/256%256,color%256)
+            sk.Thickness = 1
+        end
+        local ul = petList:FindFirstChildOfClass("UIListLayout")
+        if ul then petList.CanvasSize = UDim2.new(0,0,0,ul.AbsoluteContentSize.Y+8) end
+    end)
+end
+
+local function clearPetGUI()
+    pcall(function()
+        if not petList then return end
+        for _,c in ipairs(petList:GetChildren()) do
+            if c:IsA("TextLabel") then c:Destroy() end
+        end
+        petList.CanvasSize = UDim2.new(0,0,0,0)
+    end)
+end
+
+task.spawn(function() while true do updateGUI() task.wait(1) end end)
+
+-- PET DETECTION
+local function detectMods(petObj)
+    local mods,highest,hr = {},nil,0
+    pcall(function()
+        local s = petObj.Name:lower()
+        for _,d in ipairs(petObj:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("StringValue") then
+                s = s.." "..(d:IsA("TextLabel") and d.Text or d.Value):lower()
+            end
+        end
+        for mn,md in pairs(MODS) do
+            if s:find(mn) then
+                table.insert(mods,mn)
+                if md.rank > hr then hr=md.rank; highest=mn end
+            end
+        end
+    end)
+    return mods,highest
+end
+
+local function getPetBase(objName)
+    local rest = objName:gsub("^WildPet_","")
+    local p = rest:match("^(.-)_WildPet_")
+    if not p then return nil end
+    for mod in pairs(MODS) do
+        p = p:gsub("^"..mod:sub(1,1):upper()..mod:sub(2).."_","")
+        p = p:gsub("^"..mod.."_","")
+    end
+    local d = PETS[p]
+    if d then return d.display or p, d end
+end
+
+local function getLabel(obj, name)
+    local ok,t = pcall(function()
+        local rp = obj:FindFirstChild("RootPart")
         if not rp then return "?" end
-        local bb = rp:FindFirstChild(bbName)
+        local bb = rp:FindFirstChild(name)
         if not bb then return "?" end
-        local lbl = bb:FindFirstChildOfClass("TextLabel")
-        if lbl then return lbl.Text end
-        for _, c in ipairs(bb:GetDescendants()) do
+        local l = bb:FindFirstChildOfClass("TextLabel")
+        if l then return l.Text end
+        for _,c in ipairs(bb:GetDescendants()) do
             if c:IsA("TextLabel") then return c.Text end
         end
         return "?"
     end)
-    return ok and txt or "?"
+    return ok and t or "?"
 end
 
-local function getTraits(petObj)
-    local ok, traits = pcall(function()
-        for _, d in ipairs(petObj:GetDescendants()) do
-            if d:IsA("StringValue") then
-                local n = d.Name:lower()
-                if n:find("trait") or n:find("mutation") then
-                    if d.Value ~= "" then return d.Value end
-                end
-            end
+local function buildInfo(petObj)
+    local nm,pd = getPetBase(petObj.Name)
+    if not nm then return nil end
+    local mods,hm = detectMods(petObj)
+    local rank,rarity,color = pd.rank,pd.rarity,pd.color
+    if hm and MODS[hm] and MODS[hm].rank > rank then
+        rank=MODS[hm].rank
+        rarity=hm:sub(1,1):upper()..hm:sub(2)
+        color=MODS[hm].color
+    end
+    local traits = "None"
+    if #mods>0 then
+        local t={}
+        for _,m in ipairs(mods) do
+            table.insert(t,(MODS[m] and MODS[m].emoji or "").." "..m:sub(1,1):upper()..m:sub(2))
         end
-        return "None"
-    end)
-    return ok and traits or "None"
-end
-
-local function buildPetInfo(petObj)
-    local petName, petData = getPetInfo(petObj.Name)
-    if not petName then return nil end
+        traits = table.concat(t,"\n")
+    end
     return {
-        name = petName, data = petData,
-        price = getLabel(petObj, "PetCostTimer"),
-        timer = getLabel(petObj, "PetLeaveTimer"),
-        traits = getTraits(petObj),
-        key = petObj.Name,
+        name=nm, data=pd, rarity=rarity, rank=rank,
+        color=color, modifiers=mods, traits=traits,
+        price=getLabel(petObj,"PetCostTimer"),
+        timer=getLabel(petObj,"PetLeaveTimer"),
+        key=petObj.Name,
     }
 end
 
--- ============ WEBHOOK SENDERS ============
+-- WEBHOOK
 local function webhookPet(info)
-    local d = info.data
-    local ping = shouldPing(d.rarity)
     local jobId = game.JobId
-    local placeId = game.PlaceId
-    local joinUrl = "roblox://experiences/start?placeId="..placeId.."&gameInstanceId="..jobId
-
-    return sendWebhook({
-        content = ping and "@everyone" or nil,
-        username = "Pet Finder - Grow a Garden 2",
-        embeds = {{
-            title = info.name,
-            description = "Pet found in Grow a Garden 2",
-            color = d.color,
-            fields = {
-                {name="Rarity",    value=d.rarity,    inline=false},
-                {name="Traits",    value=info.traits, inline=false},
-                {name="Price",     value=info.price,  inline=false},
-                {name="Time Left", value=info.timer,  inline=false},
-                {name="Players",   value=tostring(#Players:GetPlayers()), inline=false},
-                {name="🎮 Join This Exact Server", 
-                 value="**[👉 CLICK HERE TO JOIN 👈]("..joinUrl..")**\n\n*Backup script:*\n```lua\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance("..placeId..", \""..jobId.."\", game.Players.LocalPlayer)\n```", 
+    local joinUrl = VERCEL.."?placeId="..PLACE_ID.."&gameInstanceId="..jobId
+    local title = info.name
+    if #info.modifiers>0 then
+        local pre=""
+        for _,m in ipairs(info.modifiers) do
+            if MODS[m] then pre=pre..MODS[m].emoji.." " end
+        end
+        title=pre..info.name
+    end
+    return sendWH({
+        content=shouldPing(info.rarity) and "@everyone" or nil,
+        username="Pet Finder - Grow a Garden 2",
+        embeds={{
+            title=title,
+            description="Pet found in Grow a Garden 2",
+            url=joinUrl, color=info.color,
+            fields={
+                {name="Rarity",value=info.rarity,inline=true},
+                {name="Traits",value=info.traits,inline=true},
+                {name="Players",value=tostring(#Players:GetPlayers()),inline=true},
+                {name="Price",value=info.price,inline=true},
+                {name="Time Left",value=info.timer,inline=true},
+                {name="\u{200B}",value="\u{200B}",inline=true},
+                {name="🎮 Join Server",
+                 value="**[👉 CLICK HERE TO JOIN 👈]("..joinUrl..")**\n\n*Backup:*\n```lua\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance("..PLACE_ID..", \""..jobId.."\", game.Players.LocalPlayer)\n```",
                  inline=false},
             },
             footer={text="Pet Finder GAG2 | Job: "..jobId:sub(1,12)},
@@ -184,181 +380,188 @@ local function webhookPet(info)
     })
 end
 
--- ============ FAST SERVER HOPPER ============
-local function getServers()
-    if not httpRequest then return nil end
-    local url = "https://games.roblox.com/v1/games/"..PLACE_ID.."/servers/Public?sortOrder=Desc&limit=100"
-    local ok, response = pcall(function()
-        return httpRequest({Url=url, Method="GET"})
-    end)
-    if not ok or not response then return nil end
-    local body = response.Body or response.body
+-- SERVER HOPPER
+local function getServers(cursor)
+    if not req then return nil end
+    local url="https://games.roblox.com/v1/games/"..PLACE_ID.."/servers/Public?sortOrder=Desc&limit=100"
+    if cursor then url=url.."&cursor="..cursor end
+    local ok,r = pcall(function() return req({Url=url,Method="GET"}) end)
+    if not ok or not r then return nil end
+    local body = r.Body or r.body or r.responseBody
     if not body then return nil end
-    local decoded
-    pcall(function() decoded = HttpService:JSONDecode(body) end)
-    return decoded
+    local s,d = pcall(function() return HttpService:JSONDecode(body) end)
+    return s and d or nil
 end
 
-local function findServer()
-    local data = getServers()
-    if not data or not data.data then return nil end
-    
-    local candidates = {}
-    for _, srv in ipairs(data.data) do
-        if srv.id ~= game.JobId 
-           and srv.playing >= MIN_PLAYERS
-           and srv.playing <= MAX_PLAYERS
-           and srv.maxPlayers > srv.playing then
-            table.insert(candidates, srv)
+local function refreshCache()
+    serverCache={}
+    local cursor=nil
+    for i=1,10 do
+        local d=getServers(cursor)
+        if not d or not d.data then break end
+        for _,sv in ipairs(d.data) do
+            if sv.id and sv.id~=game.JobId and not triedServers[sv.id]
+               and sv.playing>=MIN_PLAYERS and sv.playing<=MAX_PLAYERS
+               and sv.maxPlayers and (sv.maxPlayers-sv.playing)>=2 then
+                table.insert(serverCache,sv)
+            end
         end
+        cursor=d.nextPageCursor
+        if not cursor then break end
+        task.wait(0.15)
     end
-    
-    if #candidates == 0 then return nil end
-    return candidates[math.random(1, math.min(#candidates, 15))].id
+    return #serverCache
+end
+
+local function pickServer()
+    if #serverCache==0 then
+        if refreshCache()==0 then triedServers={}; refreshCache() end
+    end
+    if #serverCache==0 then return nil end
+    local idx=math.random(1,math.min(#serverCache,10))
+    return table.remove(serverCache,idx)
 end
 
 local function doHop()
     if hopping then return end
-    hopping = true
-    serversHopped = serversHopped + 1
-    log("Hopping #"..serversHopped,"HOP")
-    
-    -- CRITICAL: Queue script to run after teleport
+    hopping=true
+    hops=hops+1
+    triedServers[game.JobId]=true
+    saveStats()
+    log("=== Hop #"..hops.." ===","HOP")
+    setStatus("🔄 Hopping #"..hops)
     queueScript()
-    
-    local attempts = 0
-    while attempts < 8 do
-        attempts = attempts + 1
-        local targetId = findServer()
-        
-        local ok = pcall(function()
-            if targetId then
-                TeleportService:TeleportToPlaceInstance(PLACE_ID, targetId, lp)
-            else
-                TeleportService:Teleport(PLACE_ID, lp)
-            end
-        end)
-        
-        if ok then
+    local attempts=0
+    while true do
+        attempts=attempts+1
+        if attempts%20==0 then triedServers={} end
+        local sv=pickServer()
+        if sv then
+            triedServers[sv.id]=true
+            log(("Try #%d: %s (%d/%d)"):format(attempts,sv.id:sub(1,12),sv.playing,sv.maxPlayers),"INFO")
+            queueScript()
+            local ok,err=pcall(function()
+                TeleportService:TeleportToPlaceInstance(PLACE_ID,sv.id,lp)
+            end)
+            if not ok then log("TP err: "..tostring(err),"ERR") end
             task.wait(5)
-            return
+        else
+            task.wait(2)
         end
-        
-        log("Hop attempt "..attempts.." failed, retry...","ERR")
-        task.wait(1.5)
-        queueScript() -- re-queue in case
+        if attempts%30==0 then
+            queueScript()
+            pcall(function() TeleportService:Teleport(PLACE_ID,lp) end)
+            task.wait(5)
+        end
     end
-    
-    hopping = false
 end
 
 TeleportService.TeleportInitFailed:Connect(function(_,_,e)
     log("TPFail: "..tostring(e),"ERR")
     queueScript()
     task.wait(2)
-    doHop()
+    hopping=false
+    task.spawn(doHop)
 end)
 
--- ============ HANDLE PET ============
-local function handlePet(info)
-    if not info then return end
-    if notified[info.key] then return end
-    if info.data.rank >= MIN_RANK then
-        notified[info.key] = true
-        totalFound = totalFound + 1
-        log(("PET! %s [%s] | 💰%s | ⏰%s"):format(
-            info.name, info.data.rarity, info.price, info.timer),"PET")
-        task.spawn(function() webhookPet(info) end)
-    else
-        notified[info.key] = true
-    end
+-- SCANNER
+local function getSpawns()
+    local m=workspace:FindFirstChild("Map")
+    return m and m:FindFirstChild("WildPetSpawns")
 end
 
--- ============ FAST SCANNER ============
-local function getSpawns()
-    local map = workspace:FindFirstChild("Map")
-    return map and map:FindFirstChild("WildPetSpawns")
+local function handlePet(info)
+    if not info or notified[info.key] then return end
+    notified[info.key]=true
+    addPetGUI(info.name,info.rarity,info.color)
+    if info.rank>=MIN_RANK then
+        found=found+1; saveStats()
+        log(("PET! %s [%s] 💰%s ⏰%s"):format(info.name,info.rarity,info.price,info.timer),"PET")
+        task.spawn(function() webhookPet(info) end)
+    end
 end
 
 local function scanAll()
-    local spawns = getSpawns()
-    if not spawns then return end
-    for _, petObj in ipairs(spawns:GetChildren()) do
-        if not notified[petObj.Name] then
-            local info = buildPetInfo(petObj)
-            if info then handlePet(info) end
+    local sp=getSpawns()
+    if not sp then return 0 end
+    local c=0
+    for _,obj in ipairs(sp:GetChildren()) do
+        if not notified[obj.Name] then
+            local info=buildInfo(obj)
+            if info then handlePet(info); c=c+1 end
         end
     end
+    return c
 end
 
--- ============ MAIN ============
+-- MAIN
 local function main()
-    log("=== GAG2 Pet Finder ULTRA ===","INFO")
-    log("Scan duration: "..SCAN_DURATION.."s","INFO")
-    
-    if httpRequest then log("HTTP OK","OK") else log("NO HTTP","ERR") end
-    
-    -- Queue immediately (in case we just teleported in)
+    log("=== GAG2 Pet Finder v6 ===","INFO")
+    createGUI()
+    setStatus("Starting...")
     queueScript()
-    
     if not game:IsLoaded() then game.Loaded:Wait() end
-    task.wait(3) -- minimal wait
+    task.wait(2)
     
-    log("Server: "..game.JobId.." | "..#Players:GetPlayers().." players","OK")
-
-    -- Initial webhook
-    task.spawn(function()
-        sendWebhook({
-            username="Pet Finder - Grow a Garden 2",
-            content="✅ **Online!** Server: `"..game.JobId:sub(1,12).."` ("..#Players:GetPlayers().." players)"
-        })
-    end)
-
-    -- Wait for spawns folder (max 5s)
-    local spawns
-    for i = 1, 10 do
-        spawns = getSpawns()
-        if spawns then break end
-        task.wait(0.5)
-    end
-    
-    if spawns then
-        log("Found WildPetSpawns ("..#spawns:GetChildren().." pets)","OK")
-        
-        -- Scan existing pets IMMEDIATELY
-        scanAll()
-        
-        -- Listen for new spawns (instant detection)
-        spawns.ChildAdded:Connect(function(child)
-            task.wait(0.3)
-            if not notified[child.Name] then
-                handlePet(buildPetInfo(child))
-            end
-        end)
-    else
-        log("No WildPetSpawns! Hopping...","ERR")
-        doHop()
+    if game.PlaceId~=PLACE_ID then
+        log("Wrong game! Redirecting...","ERR")
+        setStatus("⚠️ Wrong game...")
+        queueScript()
+        pcall(function() TeleportService:Teleport(PLACE_ID,lp) end)
         return
     end
-
-    -- Fast scan loop + hop timer
-    local timer = 0
-    while true do
-        task.wait(0.3) -- ultra fast scan tick
-        timer = timer + 0.3
-        scanAll()
-        
-        if timer >= SCAN_DURATION then
-            doHop()
-            return -- exit, autoexec will restart
+    
+    log("Server: "..game.JobId.." | "..#Players:GetPlayers().." players","OK")
+    setStatus("✅ Scanning...")
+    clearPetGUI()
+    task.spawn(refreshCache)
+    task.spawn(function()
+        sendWH({username="Pet Finder - Grow a Garden 2",
+            content="✅ **Online!** GAG2 | `"..game.JobId:sub(1,12).."`"})
+    end)
+    
+    local spawns
+    for i=1,20 do
+        spawns=getSpawns()
+        if spawns then break end
+        task.wait(0.3)
+    end
+    
+    if not spawns then
+        log("No WildPetSpawns! Hopping...","ERR")
+        doHop(); return
+    end
+    
+    log("Found WildPetSpawns ("..#spawns:GetChildren().." pets)","OK")
+    setStatus("🔍 Scanning...")
+    scanAll()
+    
+    spawns.ChildAdded:Connect(function(child)
+        task.wait(0.2)
+        if not notified[child.Name] then
+            handlePet(buildInfo(child))
         end
+    end)
+    
+    local t0=tick(); local lastNew=tick()
+    while true do
+        task.wait(0.2)
+        local n=scanAll()
+        if n>0 then lastNew=tick() end
+        if tick()-lastNew>=2 and tick()-t0>=3 then
+            log("All pets logged! Hopping","OK")
+            setStatus("✅ Done! Hopping...")
+            doHop(); return
+        end
+        if tick()-t0>=30 then doHop(); return end
     end
 end
 
 local function safeStart()
-    local ok,err = pcall(main)
+    local ok,err=pcall(main)
     if not ok then
         log("CRASH: "..tostring(err),"ERR")
+        setStatus("❌ Crashed, restarting...")
         queueScript()
         task.wait(3)
         safeStart()
