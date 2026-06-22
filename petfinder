@@ -1,25 +1,31 @@
--- GAG2 Pet Finder v8
+-- GAG2 Pet Finder v10
 local Players=game:GetService("Players")
 local TS=game:GetService("TeleportService")
 local HS=game:GetService("HttpService")
 local CG=game:GetService("CoreGui")
+
+if _G.GAG2_RUNNING then
+    _G.GAG2_STOP = true
+    task.wait(1)
+end
+_G.GAG2_STOP = false
+_G.GAG2_RUNNING = true
+
 local WEBHOOK="https://discord.com/api/webhooks/1497998833974775910/daQqHT3kS2DRrW0ehvSmhakGHbkZJLtv2bnl0-h7WFLYscCoT1L2sgN_W-cMGPeLRWlJ"
 local PID=97598239454123
 local MINR="common"
-local PING={"mythic","super","big","rainbow","mythical"}
-local MINPL=3
-local MAXPL=25
+local PING={"mythic","super","big","rainbow"}
+local MINPL=3;local MAXPL=25
 local SURL="https://raw.githubusercontent.com/Mcdofries/gag2finder/refs/heads/main/petfinder"
 local VERCEL="https://gag2joiner.vercel.app/api/joiner"
-local req=(syn and syn.request) or http_request or request or (fluxus and fluxus.request) or (getgenv and getgenv().request)
+local req=(syn and syn.request) or http_request or request
+          or (fluxus and fluxus.request) or (getgenv and getgenv().request)
+
 local ec='task.wait(4) loadstring(game:HttpGet("'..SURL..'"))()'
 pcall(function()
-    if writefile then
-        for _,p in ipairs({"autoexec/GAG2.lua","auto_execute/GAG2.lua","AutoExec/GAG2.lua"}) do
-            pcall(function() writefile(p,ec) end)
-        end
-    end
+    if writefile then writefile("autoexec/GAG2.lua", ec) end
 end)
+
 local function qs()
     pcall(function()
         if queue_on_teleport then queue_on_teleport(ec)
@@ -29,19 +35,44 @@ local function qs()
         end
     end)
 end
+
+-- PETS (correct rarities)
 local PETS={
-    Frog={r="Common",rk=1,c=5793266},Bunny={r="Common",rk=1,c=5793266},
-    Owl={r="Uncommon",rk=2,c=3066993},Deer={r="Rare",rk=3,c=3447003},
-    Robin={r="Legendary",rk=4,c=15844367},Bee={r="Legendary",rk=4,c=15844367},
+    Frog={r="Common",rk=1,c=5793266},
+    Bunny={r="Common",rk=1,c=5793266},
+    Owl={r="Uncommon",rk=2,c=3066993},
+    Deer={r="Rare",rk=3,c=3447003},
+    Robin={r="Legendary",rk=4,c=15844367},
+    Bee={r="Legendary",rk=4,c=15844367},
     Monkey={r="Mythic",rk=5,c=15158332},
     Golden_Dragonfly={r="Mythic",rk=5,c=15158332,d="Golden Dragonfly"},
-    Unicorn={r="Mythic",rk=5,c=15158332},Raccoon={r="Super",rk=6,c=10181046},
+    Unicorn={r="Mythic",rk=5,c=15158332},
+    Raccoon={r="Super",rk=6,c=10181046},
     Black_Dragon={r="Super",rk=6,c=10181046,d="Black Dragon"},
     Ice_Serpent={r="Super",rk=6,c=10181046,d="Ice Serpent"},
 }
-local RNK={common=1,uncommon=2,rare=3,legendary=4,mythic=5,super=6,big=7,mythical=8,rainbow=9}
-local MODS={big={rk=7,c=16753920,e="🟧"},mythical={rk=8,c=10181046,e="🟪"},rainbow={rk=9,c=16776960,e="🌈"}}
-local REMI={Common="⚪",Uncommon="🟢",Rare="🔵",Legendary="🟡",Mythic="🔴",Super="🟣",Big="🟧",Mythical="🟪",Rainbow="🌈"}
+
+-- Rarity ranks (mythical removed since it = mythic)
+local RNK={common=1,uncommon=2,rare=3,legendary=4,mythic=5,super=6,big=7,rainbow=8}
+
+-- Modifiers (mythical merged into mythic)
+local MODS={
+    big={rk=7,c=16753920,e="🟧",name="Big"},
+    rainbow={rk=8,c=16776960,e="🌈",name="Rainbow"},
+}
+
+-- Rarity emojis (full color coded)
+local REMI={
+    Common="⚪",
+    Uncommon="🟢",
+    Rare="🔵",
+    Legendary="🟡",
+    Mythic="🔴",
+    Super="🟣",
+    Big="🟧",
+    Rainbow="🌈",
+}
+
 local MRK=RNK[MINR] or 1
 local lp=Players.LocalPlayer
 local ss=os.time()
@@ -50,32 +81,41 @@ local notif,tried,cache={},{},{}
 local hopping=false
 local gst="Starting..."
 local sLbl,hLbl,fLbl,svLbl,uLbl,pList
+
 pcall(function()
     if isfile and isfile("g2s.json") then
         local d=HS:JSONDecode(readfile("g2s.json"))
         if d then hops=d.h or 0;fnd=d.f or 0;ss=d.t or os.time() end
     end
 end)
-local function sv()
+
+local function saveSt()
     pcall(function()
         if writefile then writefile("g2s.json",HS:JSONEncode({h=hops,f=fnd,t=ss})) end
     end)
 end
+
 local function lg(m,t)
     local i={INFO="ℹ️",OK="✅",ERR="❌",PET="🐾",HOP="🔄"}
     print(os.date("[%H:%M:%S]").." "..(i[t] or "📌").." "..m)
 end
+
 local function setSt(s) gst=s end
+
 local function sp(r)
     r=r:lower()
     for _,v in ipairs(PING) do if r:find(v) then return true end end
 end
+
 local function wh(b)
     if not req then return false end
     return pcall(function()
-        req({Url=WEBHOOK,Method="POST",Headers={["Content-Type"]="application/json"},Body=HS:JSONEncode(b)})
+        req({Url=WEBHOOK,Method="POST",
+            Headers={["Content-Type"]="application/json"},
+            Body=HS:JSONEncode(b)})
     end)
 end
+
 local function mkG()
     pcall(function() if CG:FindFirstChild("G2PF") then CG.G2PF:Destroy() end end)
     local sg=Instance.new("ScreenGui")
@@ -105,7 +145,8 @@ local function mkG()
     local mb=Instance.new("TextButton")
     mb.Size=UDim2.new(0,27,0,27);mb.Position=UDim2.new(1,-31,0,3)
     mb.BackgroundColor3=Color3.fromRGB(200,50,50);mb.Text="-"
-    mb.TextColor3=Color3.new(1,1,1);mb.TextSize=17;mb.Font=Enum.Font.GothamBold;mb.Parent=tb
+    mb.TextColor3=Color3.new(1,1,1);mb.TextSize=17
+    mb.Font=Enum.Font.GothamBold;mb.Parent=tb
     Instance.new("UICorner",mb).CornerRadius=UDim.new(0,5)
     local ct=Instance.new("Frame")
     ct.Size=UDim2.new(1,-14,1,-40);ct.Position=UDim2.new(0,7,0,37)
@@ -145,6 +186,7 @@ local function mkG()
         mb.Text=mi and "+" or "-"
     end)
 end
+
 local function ugui()
     pcall(function()
         local e=os.time()-ss
@@ -155,6 +197,7 @@ local function ugui()
         if uLbl then uLbl.Text=("⏱️ %02d:%02d:%02d"):format(e/3600,e%3600/60,e%60) end
     end)
 end
+
 local function apg(nm,ry,co)
     pcall(function()
         if not pList then return end
@@ -165,13 +208,14 @@ local function apg(nm,ry,co)
         l.TextXAlignment=Enum.TextXAlignment.Left;l.Parent=pList
         Instance.new("UICorner",l).CornerRadius=UDim.new(0,4)
         if co then
-            local sk=Instance.new("UIStroke",l)
-            sk.Color=Color3.fromRGB(co/65536%256,co/256%256,co%256);sk.Thickness=1
+            local s=Instance.new("UIStroke",l)
+            s.Color=Color3.fromRGB(co/65536%256,co/256%256,co%256);s.Thickness=1
         end
         local ul=pList:FindFirstChildOfClass("UIListLayout")
         if ul then pList.CanvasSize=UDim2.new(0,0,0,ul.AbsoluteContentSize.Y+6) end
     end)
 end
+
 local function cpg()
     pcall(function()
         if not pList then return end
@@ -181,7 +225,11 @@ local function cpg()
         pList.CanvasSize=UDim2.new(0,0,0,0)
     end)
 end
-task.spawn(function() while true do ugui();task.wait(1) end end)
+
+task.spawn(function()
+    while not _G.GAG2_STOP do ugui();task.wait(1) end
+end)
+
 local function dmods(o)
     local mods,hi,hr={},nil,0
     pcall(function()
@@ -191,15 +239,16 @@ local function dmods(o)
                 s=s.." "..(d:IsA("TextLabel") and d.Text or d.Value):lower()
             end
         end
-        for mn,md in pairs(MODS) do
-            if s:find(mn) then
-                table.insert(mods,mn)
-                if md.rk>hr then hr=md.rk;hi=mn end
+        for mn2,md in pairs(MODS) do
+            if s:find(mn2) then
+                table.insert(mods,mn2)
+                if md.rk>hr then hr=md.rk;hi=mn2 end
             end
         end
     end)
     return mods,hi
 end
+
 local function gpb(n)
     local r=n:gsub("^WildPet_","")
     local p=r:match("^(.-)_WildPet_")
@@ -208,9 +257,13 @@ local function gpb(n)
         p=p:gsub("^"..m:sub(1,1):upper()..m:sub(2).."_","")
         p=p:gsub("^"..m.."_","")
     end
+    -- Also strip "Mythical_" since it's same as Mythic
+    p=p:gsub("^Mythical_","")
+    p=p:gsub("^mythical_","")
     local d=PETS[p]
     if d then return d.d or p,d end
 end
+
 local function gl(o,n)
     local ok,t=pcall(function()
         local rp=o:FindFirstChild("RootPart")
@@ -226,6 +279,7 @@ local function gl(o,n)
     end)
     return ok and t or "?"
 end
+
 local function bi(o)
     local nm,pd=gpb(o.Name)
     if not nm then return nil end
@@ -233,12 +287,13 @@ local function bi(o)
     local rk,ry,co=pd.rk,pd.r,pd.c
     if hm and MODS[hm] and MODS[hm].rk>rk then
         rk=MODS[hm].rk
-        ry=hm:sub(1,1):upper()..hm:sub(2)
+        ry=MODS[hm].name
         co=MODS[hm].c
     end
     return {nm=nm,pd=pd,ry=ry,rk=rk,co=co,mods=mods,
         pr=gl(o,"PetCostTimer"),tm=gl(o,"PetLeaveTimer"),key=o.Name}
 end
+
 local function whp(info)
     local jid=game.JobId
     local ju=VERCEL.."?placeId="..PID.."&gameInstanceId="..jid
@@ -247,8 +302,7 @@ local function whp(info)
         content=sp(info.ry) and "@everyone" or nil,
         username="Pet Finder - Grow a Garden 2",
         embeds={{
-            title=info.nm,
-            author={name="🐾 Pet Found!"},
+            title=info.nm,author={name="🐾 Pet Found!"},
             url=ju,color=info.co,
             fields={
                 {name="Rarity",value=re.." "..info.ry,inline=false},
@@ -261,6 +315,7 @@ local function whp(info)
         }}
     })
 end
+
 local function gsvs(cursor)
     if not req then return nil end
     local url="https://games.roblox.com/v1/games/"..PID.."/servers/Public?sortOrder=Desc&limit=100"
@@ -272,6 +327,7 @@ local function gsvs(cursor)
     local s,d=pcall(function() return HS:JSONDecode(body) end)
     return s and d or nil
 end
+
 local function rc()
     cache={}
     local cur=nil
@@ -289,39 +345,35 @@ local function rc()
         if not cur then break end
         task.wait(0.1)
     end
-    lg("Cached "..#cache.." servers","INFO")
+    lg("Cached "..#cache,"INFO")
     return #cache
 end
+
 local function doTP(jid)
-    local ok,e=pcall(function()
-        TS:TeleportToPlaceInstance(PID,jid,lp)
-    end)
+    local ok=pcall(function() TS:TeleportToPlaceInstance(PID,jid,lp) end)
     if ok then return true end
-    lg("M1:"..tostring(e):sub(1,30),"ERR")
-    ok,e=pcall(function()
+    ok=pcall(function()
         local o=Instance.new("TeleportOptions")
         o.ServerInstanceId=jid
         TS:TeleportAsync(PID,{lp},o)
     end)
     if ok then return true end
-    lg("M2:"..tostring(e):sub(1,30),"ERR")
-    ok,e=pcall(function() TS:Teleport(PID,lp) end)
-    if ok then return true end
-    lg("M3:"..tostring(e):sub(1,30),"ERR")
-    return false
+    ok=pcall(function() TS:Teleport(PID,lp) end)
+    return ok
 end
+
 local function dh()
     if hopping then return end
     hopping=true
     hops=hops+1
     tried[game.JobId]=true
-    sv();lg("=== Hop #"..hops.." ===","HOP")
+    saveSt();lg("=== Hop #"..hops.." ===","HOP")
     setSt("🔄 Hop #"..hops)
     qs();task.wait(0.5)
     local at=0
-    while true do
+    while not _G.GAG2_STOP do
         at=at+1
-        if at%15==0 then tried={};lg("Reset tried","INFO") end
+        if at%15==0 then tried={} end
         if at==1 or at%10==0 then rc() end
         if #cache>0 then
             local idx=math.random(1,math.min(#cache,10))
@@ -331,34 +383,37 @@ local function dh()
                 setSt("🔄 Try "..at)
                 lg(("Try#%d->%s(%d)"):format(at,sv2.id:sub(1,10),sv2.playing),"INFO")
                 qs()
-                if doTP(sv2.id) then task.wait(8);lg("Still here,retry","ERR")
-                else task.wait(1.5) end
+                if doTP(sv2.id) then task.wait(8) end
+                task.wait(1)
             end
         else
-            lg("No cache,random","ERR")
             qs();pcall(function() TS:Teleport(PID,lp) end)
             task.wait(5)
         end
     end
 end
+
 TS.TeleportInitFailed:Connect(function(_,_,e)
     lg("TPFail:"..tostring(e),"ERR")
     qs();task.wait(1);hopping=false;task.spawn(dh)
 end)
+
 local function gsp()
     local m=workspace:FindFirstChild("Map")
     return m and m:FindFirstChild("WildPetSpawns")
 end
+
 local function hp(info)
     if not info or notif[info.key] then return end
     notif[info.key]=true
     apg(info.nm,info.ry,info.co)
     if info.rk>=MRK then
-        fnd=fnd+1;sv()
-        lg(("PET! %s[%s]💰%s⏰%s"):format(info.nm,info.ry,info.pr,info.tm),"PET")
+        fnd=fnd+1;saveSt()
+        lg(("PET! %s[%s]"):format(info.nm,info.ry),"PET")
         task.spawn(function() whp(info) end)
     end
 end
+
 local function sa()
     local sp2=gsp()
     if not sp2 then return 0 end
@@ -371,24 +426,35 @@ local function sa()
     end
     return c
 end
+
 local function main()
-    lg("=== GAG2 v8 ===","INFO")
+    lg("=== GAG2 v10 ===","INFO")
     mkG();setSt("Starting...");qs()
     if not game:IsLoaded() then setSt("⏳ Loading...");game.Loaded:Wait() end
     task.wait(2)
+    if _G.GAG2_STOP then return end
     if game.PlaceId~=PID then
         lg("Wrong game!","ERR");setSt("⚠️ Wrong game...")
         qs();pcall(function() TS:Teleport(PID,lp) end);return
     end
-    lg("Server:"..game.JobId:sub(1,12).." | "..#Players:GetPlayers().."p","OK")
+    lg("Server:"..game.JobId:sub(1,12),"OK")
     setSt("✅ In GAG2!");cpg()
     task.spawn(rc)
-    task.spawn(function()
-        wh({username="Pet Finder - Grow a Garden 2",
-            content="✅ **Online!** GAG2 | `"..game.JobId:sub(1,12).."`"})
-    end)
+
+    if not _G.GAG2_SENT_ONLINE then
+        _G.GAG2_SENT_ONLINE = true
+        task.spawn(function()
+            wh({username="Pet Finder - Grow a Garden 2",
+                content="✅ **Online!** GAG2 | `"..game.JobId:sub(1,12).."`"})
+        end)
+    end
+
     local spawns
-    for i=1,20 do spawns=gsp();if spawns then break end;task.wait(0.3) end
+    for i=1,20 do
+        spawns=gsp()
+        if spawns then break end
+        task.wait(0.3)
+    end
     if not spawns then
         lg("No WildPetSpawns!","ERR");setSt("⚠️ No pets...")
         dh();return
@@ -396,26 +462,29 @@ local function main()
     lg("Spawns:"..#spawns:GetChildren(),"OK");setSt("🔍 Scanning...")
     sa()
     spawns.ChildAdded:Connect(function(child)
+        if _G.GAG2_STOP then return end
         task.wait(0.2)
         if not notif[child.Name] then hp(bi(child)) end
     end)
     local t0=tick();local ln=tick()
-    while true do
+    while not _G.GAG2_STOP do
         task.wait(0.2)
         local n=sa()
         if n>0 then ln=tick() end
         if tick()-ln>=2 and tick()-t0>=3 then
-            lg("All logged! Hopping","OK");setSt("✅ Done! Hopping...")
+            setSt("✅ Done! Hopping...")
             dh();return
         end
-        if tick()-t0>=30 then lg("Timeout","INFO");dh();return end
+        if tick()-t0>=30 then dh();return end
     end
 end
+
 local function ss2()
     local ok,err=pcall(main)
-    if not ok then
+    if not ok and not _G.GAG2_STOP then
         lg("CRASH:"..tostring(err),"ERR")
         setSt("❌ Crashed...");qs();task.wait(3);ss2()
     end
 end
+
 ss2()
