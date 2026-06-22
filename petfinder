@@ -1,0 +1,368 @@
+-- Grow a Garden 2 - Wild Pet Finder ULTRA
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+-- ============ CONFIG ============
+local WEBHOOK = "https://discord.com/api/webhooks/1497998833974775910/daQqHT3kS2DRrW0ehvSmhakGHbkZJLtv2bnl0-h7WFLYscCoT1L2sgN_W-cMGPeLRWlJ"
+local PLACE_ID = 142823291
+local MIN_RARITY = "common"
+local PING_ON = {"mythic","super"}
+local SCAN_DURATION = 10        -- only 10 seconds per server
+local MIN_PLAYERS = 6
+local MAX_PLAYERS = 30
+local SCRIPT_URL = "https://pastebin.com/raw/YOUR_SCRIPT_ID"  -- CHANGE THIS!
+
+-- ============ HTTP ============
+local httpRequest = (syn and syn.request) or http_request or request 
+                 or (fluxus and fluxus.request) or krnl_request 
+                 or (getgenv and getgenv().request)
+
+-- ============ AUTO EXECUTE (writes to autoexec folder) ============
+local autoExecCode = 'task.wait(3) loadstring(game:HttpGet("'..SCRIPT_URL..'"))()'
+pcall(function()
+    if writefile then
+        -- Try multiple autoexec folder names
+        local paths = {
+            "autoexec/GAG2_PetFinder.lua",
+            "auto_execute/GAG2_PetFinder.lua",
+            "autoexecute/GAG2_PetFinder.lua",
+            "AutoExec/GAG2_PetFinder.lua",
+        }
+        for _, p in ipairs(paths) do
+            pcall(function() writefile(p, autoExecCode) end)
+        end
+    end
+end)
+
+-- Queue on teleport (instant re-execute after hop)
+local function queueScript()
+    pcall(function()
+        if queue_on_teleport then queue_on_teleport(autoExecCode)
+        elseif syn and syn.queue_on_teleport then syn.queue_on_teleport(autoExecCode)
+        elseif fluxus and fluxus.queue_on_teleport then fluxus.queue_on_teleport(autoExecCode)
+        elseif queueonteleport then queueonteleport(autoExecCode)
+        end
+    end)
+end
+
+-- ============ PETS ============
+local PETS = {
+    Frog             = {rarity="Common",    rank=1, color=7506394},
+    Bunny            = {rarity="Common",    rank=1, color=7506394},
+    Owl              = {rarity="Uncommon",  rank=2, color=3066993},
+    Deer             = {rarity="Rare",      rank=3, color=3447003},
+    Robin            = {rarity="Legendary", rank=4, color=15844367},
+    Bee              = {rarity="Legendary", rank=4, color=15844367},
+    Monkey           = {rarity="Mythic",    rank=5, color=15105570},
+    Golden_Dragonfly = {rarity="Mythic",    rank=5, color=15105570, display="Golden Dragonfly"},
+    Unicorn          = {rarity="Mythic",    rank=5, color=15105570},
+    Raccoon          = {rarity="Super",     rank=6, color=15158332},
+    Black_Dragon     = {rarity="Super",     rank=6, color=15158332, display="Black Dragon"},
+    Ice_Serpent      = {rarity="Super",     rank=6, color=15158332, display="Ice Serpent"},
+}
+
+local RANKS = {common=1,uncommon=2,rare=3,legendary=4,mythic=5,super=6}
+local MIN_RANK = RANKS[MIN_RARITY] or 1
+
+-- ============ STATE ============
+local lp = Players.LocalPlayer
+local sessionStart = os.time()
+local serversHopped = 0
+local totalFound = 0
+local notified = {}
+local hopping = false
+
+-- ============ UTILS ============
+local function log(m,t)
+    local i={INFO="ℹ️",OK="✅",ERR="❌",PET="🐾",HOP="🔄"}
+    print(os.date("[%H:%M:%S]").." "..(i[t] or "📌").." "..m)
+end
+
+local function uptime()
+    local e=os.time()-sessionStart
+    return ("%02d:%02d:%02d"):format(e/3600,e%3600/60,e%60)
+end
+
+local function shouldPing(r)
+    for _,v in ipairs(PING_ON) do
+        if v==r:lower() then return true end
+    end
+end
+
+local function sendWebhook(body)
+    if not httpRequest then return false end
+    return pcall(function()
+        httpRequest({
+            Url = WEBHOOK, Method = "POST",
+            Headers = {["Content-Type"]="application/json"},
+            Body = HttpService:JSONEncode(body)
+        })
+    end)
+end
+
+-- ============ PET EXTRACTION ============
+local function getPetInfo(objName)
+    local rest = objName:gsub("^WildPet_","")
+    local petPart = rest:match("^(.-)_WildPet_")
+    if not petPart then return nil end
+    local data = PETS[petPart]
+    if data then return data.display or petPart, data end
+end
+
+local function getLabel(petObj, bbName)
+    local ok, txt = pcall(function()
+        local rp = petObj:FindFirstChild("RootPart")
+        if not rp then return "?" end
+        local bb = rp:FindFirstChild(bbName)
+        if not bb then return "?" end
+        local lbl = bb:FindFirstChildOfClass("TextLabel")
+        if lbl then return lbl.Text end
+        for _, c in ipairs(bb:GetDescendants()) do
+            if c:IsA("TextLabel") then return c.Text end
+        end
+        return "?"
+    end)
+    return ok and txt or "?"
+end
+
+local function getTraits(petObj)
+    local ok, traits = pcall(function()
+        for _, d in ipairs(petObj:GetDescendants()) do
+            if d:IsA("StringValue") then
+                local n = d.Name:lower()
+                if n:find("trait") or n:find("mutation") then
+                    if d.Value ~= "" then return d.Value end
+                end
+            end
+        end
+        return "None"
+    end)
+    return ok and traits or "None"
+end
+
+local function buildPetInfo(petObj)
+    local petName, petData = getPetInfo(petObj.Name)
+    if not petName then return nil end
+    return {
+        name = petName, data = petData,
+        price = getLabel(petObj, "PetCostTimer"),
+        timer = getLabel(petObj, "PetLeaveTimer"),
+        traits = getTraits(petObj),
+        key = petObj.Name,
+    }
+end
+
+-- ============ WEBHOOK SENDERS ============
+local function webhookPet(info)
+    local d = info.data
+    local ping = shouldPing(d.rarity)
+    local jobId = game.JobId
+    local placeId = game.PlaceId
+    local joinUrl = "roblox://experiences/start?placeId="..placeId.."&gameInstanceId="..jobId
+
+    return sendWebhook({
+        content = ping and "@everyone" or nil,
+        username = "Pet Finder - Grow a Garden 2",
+        embeds = {{
+            title = info.name,
+            description = "Pet found in Grow a Garden 2",
+            color = d.color,
+            fields = {
+                {name="Rarity",    value=d.rarity,    inline=false},
+                {name="Traits",    value=info.traits, inline=false},
+                {name="Price",     value=info.price,  inline=false},
+                {name="Time Left", value=info.timer,  inline=false},
+                {name="Players",   value=tostring(#Players:GetPlayers()), inline=false},
+                {name="🎮 Join This Exact Server", 
+                 value="**[👉 CLICK HERE TO JOIN 👈]("..joinUrl..")**\n\n*Backup script:*\n```lua\ngame:GetService(\"TeleportService\"):TeleportToPlaceInstance("..placeId..", \""..jobId.."\", game.Players.LocalPlayer)\n```", 
+                 inline=false},
+            },
+            footer={text="Pet Finder GAG2 | Job: "..jobId:sub(1,12)},
+            timestamp=os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
+    })
+end
+
+-- ============ FAST SERVER HOPPER ============
+local function getServers()
+    if not httpRequest then return nil end
+    local url = "https://games.roblox.com/v1/games/"..PLACE_ID.."/servers/Public?sortOrder=Desc&limit=100"
+    local ok, response = pcall(function()
+        return httpRequest({Url=url, Method="GET"})
+    end)
+    if not ok or not response then return nil end
+    local body = response.Body or response.body
+    if not body then return nil end
+    local decoded
+    pcall(function() decoded = HttpService:JSONDecode(body) end)
+    return decoded
+end
+
+local function findServer()
+    local data = getServers()
+    if not data or not data.data then return nil end
+    
+    local candidates = {}
+    for _, srv in ipairs(data.data) do
+        if srv.id ~= game.JobId 
+           and srv.playing >= MIN_PLAYERS
+           and srv.playing <= MAX_PLAYERS
+           and srv.maxPlayers > srv.playing then
+            table.insert(candidates, srv)
+        end
+    end
+    
+    if #candidates == 0 then return nil end
+    return candidates[math.random(1, math.min(#candidates, 15))].id
+end
+
+local function doHop()
+    if hopping then return end
+    hopping = true
+    serversHopped = serversHopped + 1
+    log("Hopping #"..serversHopped,"HOP")
+    
+    -- CRITICAL: Queue script to run after teleport
+    queueScript()
+    
+    local attempts = 0
+    while attempts < 8 do
+        attempts = attempts + 1
+        local targetId = findServer()
+        
+        local ok = pcall(function()
+            if targetId then
+                TeleportService:TeleportToPlaceInstance(PLACE_ID, targetId, lp)
+            else
+                TeleportService:Teleport(PLACE_ID, lp)
+            end
+        end)
+        
+        if ok then
+            task.wait(5)
+            return
+        end
+        
+        log("Hop attempt "..attempts.." failed, retry...","ERR")
+        task.wait(1.5)
+        queueScript() -- re-queue in case
+    end
+    
+    hopping = false
+end
+
+TeleportService.TeleportInitFailed:Connect(function(_,_,e)
+    log("TPFail: "..tostring(e),"ERR")
+    queueScript()
+    task.wait(2)
+    doHop()
+end)
+
+-- ============ HANDLE PET ============
+local function handlePet(info)
+    if not info then return end
+    if notified[info.key] then return end
+    if info.data.rank >= MIN_RANK then
+        notified[info.key] = true
+        totalFound = totalFound + 1
+        log(("PET! %s [%s] | 💰%s | ⏰%s"):format(
+            info.name, info.data.rarity, info.price, info.timer),"PET")
+        task.spawn(function() webhookPet(info) end)
+    else
+        notified[info.key] = true
+    end
+end
+
+-- ============ FAST SCANNER ============
+local function getSpawns()
+    local map = workspace:FindFirstChild("Map")
+    return map and map:FindFirstChild("WildPetSpawns")
+end
+
+local function scanAll()
+    local spawns = getSpawns()
+    if not spawns then return end
+    for _, petObj in ipairs(spawns:GetChildren()) do
+        if not notified[petObj.Name] then
+            local info = buildPetInfo(petObj)
+            if info then handlePet(info) end
+        end
+    end
+end
+
+-- ============ MAIN ============
+local function main()
+    log("=== GAG2 Pet Finder ULTRA ===","INFO")
+    log("Scan duration: "..SCAN_DURATION.."s","INFO")
+    
+    if httpRequest then log("HTTP OK","OK") else log("NO HTTP","ERR") end
+    
+    -- Queue immediately (in case we just teleported in)
+    queueScript()
+    
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    task.wait(3) -- minimal wait
+    
+    log("Server: "..game.JobId.." | "..#Players:GetPlayers().." players","OK")
+
+    -- Initial webhook
+    task.spawn(function()
+        sendWebhook({
+            username="Pet Finder - Grow a Garden 2",
+            content="✅ **Online!** Server: `"..game.JobId:sub(1,12).."` ("..#Players:GetPlayers().." players)"
+        })
+    end)
+
+    -- Wait for spawns folder (max 5s)
+    local spawns
+    for i = 1, 10 do
+        spawns = getSpawns()
+        if spawns then break end
+        task.wait(0.5)
+    end
+    
+    if spawns then
+        log("Found WildPetSpawns ("..#spawns:GetChildren().." pets)","OK")
+        
+        -- Scan existing pets IMMEDIATELY
+        scanAll()
+        
+        -- Listen for new spawns (instant detection)
+        spawns.ChildAdded:Connect(function(child)
+            task.wait(0.3)
+            if not notified[child.Name] then
+                handlePet(buildPetInfo(child))
+            end
+        end)
+    else
+        log("No WildPetSpawns! Hopping...","ERR")
+        doHop()
+        return
+    end
+
+    -- Fast scan loop + hop timer
+    local timer = 0
+    while true do
+        task.wait(0.3) -- ultra fast scan tick
+        timer = timer + 0.3
+        scanAll()
+        
+        if timer >= SCAN_DURATION then
+            doHop()
+            return -- exit, autoexec will restart
+        end
+    end
+end
+
+local function safeStart()
+    local ok,err = pcall(main)
+    if not ok then
+        log("CRASH: "..tostring(err),"ERR")
+        queueScript()
+        task.wait(3)
+        safeStart()
+    end
+end
+
+safeStart()
