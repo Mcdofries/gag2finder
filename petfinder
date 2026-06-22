@@ -11,7 +11,7 @@ local PING_ON = {"mythic","super"}
 local SCAN_DURATION = 10        -- only 10 seconds per server
 local MIN_PLAYERS = 6
 local MAX_PLAYERS = 30
-local SCRIPT_URL = "https://pastebin.com/raw/YOUR_SCRIPT_ID"  -- CHANGE THIS!
+local SCRIPT_URL = "https://raw.githubusercontent.com/Mcdofries/gag2finder/refs/heads/main/petfinder"  -- CHANGE THIS!
 
 -- ============ HTTP ============
 local httpRequest = (syn and syn.request) or http_request or request 
