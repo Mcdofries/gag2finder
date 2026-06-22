@@ -1,19 +1,22 @@
--- GAG2 Pet Finder v10
+-- GAG2 Pet Finder v11
 local Players=game:GetService("Players")
 local TS=game:GetService("TeleportService")
 local HS=game:GetService("HttpService")
 local CG=game:GetService("CoreGui")
+local GS=game:GetService("GuiService")
 
+-- KILL OLD INSTANCES FIRST
 if _G.GAG2_RUNNING then
-    _G.GAG2_STOP = true
-    task.wait(1)
+    _G.GAG2_STOP=true
+    task.wait(1.5)
 end
-_G.GAG2_STOP = false
-_G.GAG2_RUNNING = true
+_G.GAG2_STOP=false
+_G.GAG2_RUNNING=true
+_G.GAG2_VERSION="v11"
 
 local WEBHOOK="https://discord.com/api/webhooks/1497998833974775910/daQqHT3kS2DRrW0ehvSmhakGHbkZJLtv2bnl0-h7WFLYscCoT1L2sgN_W-cMGPeLRWlJ"
 local PID=97598239454123
-local MINR="common"
+local MINR="uncommon"
 local PING={"mythic","super","big","rainbow"}
 local MINPL=3;local MAXPL=25
 local SURL="https://raw.githubusercontent.com/Mcdofries/gag2finder/refs/heads/main/petfinder"
@@ -21,12 +24,27 @@ local VERCEL="https://gag2joiner.vercel.app/api/joiner"
 local req=(syn and syn.request) or http_request or request
           or (fluxus and fluxus.request) or (getgenv and getgenv().request)
 
-local ec='task.wait(4) loadstring(game:HttpGet("'..SURL..'"))()'
-pcall(function()
-    if writefile then writefile("autoexec/GAG2.lua", ec) end
-end)
+-- AUTO EXEC FIX: write ONLY ONCE per Roblox session
+local ec='if _G.GAG2_LOADED then return end _G.GAG2_LOADED=true task.wait(4) loadstring(game:HttpGet("'..SURL..'"))()'
 
+if not _G.GAG2_AUTOEXEC_WRITTEN then
+    _G.GAG2_AUTOEXEC_WRITTEN=true
+    pcall(function()
+        if writefile then
+            -- Delete old file first to prevent multiple
+            if isfile and isfile("autoexec/GAG2.lua") then
+                pcall(function() delfile("autoexec/GAG2.lua") end)
+            end
+            writefile("autoexec/GAG2.lua", ec)
+        end
+    end)
+end
+
+-- Queue script: only queue ONCE per hop, not multiple times
+local queuedThisHop=false
 local function qs()
+    if queuedThisHop then return end
+    queuedThisHop=true
     pcall(function()
         if queue_on_teleport then queue_on_teleport(ec)
         elseif syn and syn.queue_on_teleport then syn.queue_on_teleport(ec)
@@ -36,7 +54,6 @@ local function qs()
     end)
 end
 
--- PETS (correct rarities)
 local PETS={
     Frog={r="Common",rk=1,c=5793266},
     Bunny={r="Common",rk=1,c=5793266},
@@ -51,28 +68,12 @@ local PETS={
     Black_Dragon={r="Super",rk=6,c=10181046,d="Black Dragon"},
     Ice_Serpent={r="Super",rk=6,c=10181046,d="Ice Serpent"},
 }
-
--- Rarity ranks (mythical removed since it = mythic)
 local RNK={common=1,uncommon=2,rare=3,legendary=4,mythic=5,super=6,big=7,rainbow=8}
-
--- Modifiers (mythical merged into mythic)
 local MODS={
     big={rk=7,c=16753920,e="🟧",name="Big"},
     rainbow={rk=8,c=16776960,e="🌈",name="Rainbow"},
 }
-
--- Rarity emojis (full color coded)
-local REMI={
-    Common="⚪",
-    Uncommon="🟢",
-    Rare="🔵",
-    Legendary="🟡",
-    Mythic="🔴",
-    Super="🟣",
-    Big="🟧",
-    Rainbow="🌈",
-}
-
+local REMI={Common="⚪",Uncommon="🟢",Rare="🔵",Legendary="🟡",Mythic="🔴",Super="🟣",Big="🟧",Rainbow="🌈"}
 local MRK=RNK[MINR] or 1
 local lp=Players.LocalPlayer
 local ss=os.time()
@@ -230,6 +231,39 @@ task.spawn(function()
     while not _G.GAG2_STOP do ugui();task.wait(1) end
 end)
 
+-- AUTO RECONNECT on disconnect
+local function setupReconnect()
+    pcall(function()
+        GS.ErrorMessageChanged:Connect(function(err)
+            if err and err ~= "" then
+                lg("DISCONNECTED: "..tostring(err),"ERR")
+                setSt("🔌 Disconnected, reconnecting...")
+                wh({username="Pet Finder - Grow a Garden 2",
+                    content="🔌 **Disconnected!** Reconnecting in 5s..."})
+                qs()
+                task.wait(5)
+                pcall(function() TS:Teleport(PID,lp) end)
+                -- If teleport fails, keep trying
+                for i=1,30 do
+                    task.wait(2)
+                    pcall(function() TS:Teleport(PID,lp) end)
+                end
+            end
+        end)
+    end)
+    
+    -- Also monitor for kicks
+    pcall(function()
+        lp.Idled:Connect(function()
+            pcall(function()
+                local vu=game:GetService("VirtualUser")
+                vu:CaptureController()
+                vu:ClickButton2(Vector2.new())
+            end)
+        end)
+    end)
+end
+
 local function dmods(o)
     local mods,hi,hr={},nil,0
     pcall(function()
@@ -257,7 +291,6 @@ local function gpb(n)
         p=p:gsub("^"..m:sub(1,1):upper()..m:sub(2).."_","")
         p=p:gsub("^"..m.."_","")
     end
-    -- Also strip "Mythical_" since it's same as Mythic
     p=p:gsub("^Mythical_","")
     p=p:gsub("^mythical_","")
     local d=PETS[p]
@@ -382,12 +415,11 @@ local function dh()
                 tried[sv2.id]=true
                 setSt("🔄 Try "..at)
                 lg(("Try#%d->%s(%d)"):format(at,sv2.id:sub(1,10),sv2.playing),"INFO")
-                qs()
                 if doTP(sv2.id) then task.wait(8) end
                 task.wait(1)
             end
         else
-            qs();pcall(function() TS:Teleport(PID,lp) end)
+            pcall(function() TS:Teleport(PID,lp) end)
             task.wait(5)
         end
     end
@@ -395,7 +427,7 @@ end
 
 TS.TeleportInitFailed:Connect(function(_,_,e)
     lg("TPFail:"..tostring(e),"ERR")
-    qs();task.wait(1);hopping=false;task.spawn(dh)
+    task.wait(1);hopping=false;task.spawn(dh)
 end)
 
 local function gsp()
@@ -428,24 +460,28 @@ local function sa()
 end
 
 local function main()
-    lg("=== GAG2 v10 ===","INFO")
-    mkG();setSt("Starting...");qs()
+    lg("=== GAG2 "..(_G.GAG2_VERSION).." ===","INFO")
+    mkG();setSt("Starting...")
+    setupReconnect()
+    
     if not game:IsLoaded() then setSt("⏳ Loading...");game.Loaded:Wait() end
     task.wait(2)
     if _G.GAG2_STOP then return end
+    
     if game.PlaceId~=PID then
         lg("Wrong game!","ERR");setSt("⚠️ Wrong game...")
-        qs();pcall(function() TS:Teleport(PID,lp) end);return
+        pcall(function() TS:Teleport(PID,lp) end);return
     end
+    
     lg("Server:"..game.JobId:sub(1,12),"OK")
     setSt("✅ In GAG2!");cpg()
     task.spawn(rc)
 
     if not _G.GAG2_SENT_ONLINE then
-        _G.GAG2_SENT_ONLINE = true
+        _G.GAG2_SENT_ONLINE=true
         task.spawn(function()
             wh({username="Pet Finder - Grow a Garden 2",
-                content="✅ **Online!** GAG2 | `"..game.JobId:sub(1,12).."`"})
+                content="✅ **Online!** GAG2"})
         end)
     end
 
@@ -483,7 +519,7 @@ local function ss2()
     local ok,err=pcall(main)
     if not ok and not _G.GAG2_STOP then
         lg("CRASH:"..tostring(err),"ERR")
-        setSt("❌ Crashed...");qs();task.wait(3);ss2()
+        setSt("❌ Crashed...");task.wait(3);ss2()
     end
 end
 
