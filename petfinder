@@ -1,22 +1,21 @@
--- GAG2 Pet Finder v11
+-- GAG2 Pet Finder v12
 local Players=game:GetService("Players")
 local TS=game:GetService("TeleportService")
 local HS=game:GetService("HttpService")
 local CG=game:GetService("CoreGui")
 local GS=game:GetService("GuiService")
 
--- KILL OLD INSTANCES FIRST
 if _G.GAG2_RUNNING then
     _G.GAG2_STOP=true
     task.wait(1.5)
 end
 _G.GAG2_STOP=false
 _G.GAG2_RUNNING=true
-_G.GAG2_VERSION="v11"
+_G.GAG2_VERSION="v12"
 
-local WEBHOOK="https://discord.com/api/webhooks/1497998833974775910/daQqHT3kS2DRrW0ehvSmhakGHbkZJLtv2bnl0-h7WFLYscCoT1L2sgN_W-cMGPeLRWlJ"
+local WEBHOOK="https://discordapp.com/api/webhooks/1505539441127587970/1x6UPAE0C84JmgiuHI7GwHHTj-sunvMi09TT-r1fC8tNnR7tQvKD_kEjKa5I3jkCkx-h"
 local PID=97598239454123
-local MINR="uncommon"
+local MINR="legendary"
 local PING={"mythic","super","big","rainbow"}
 local MINPL=3;local MAXPL=25
 local SURL="https://raw.githubusercontent.com/Mcdofries/gag2finder/refs/heads/main/petfinder"
@@ -24,14 +23,12 @@ local VERCEL="https://gag2joiner.vercel.app/api/joiner"
 local req=(syn and syn.request) or http_request or request
           or (fluxus and fluxus.request) or (getgenv and getgenv().request)
 
--- AUTO EXEC FIX: write ONLY ONCE per Roblox session
 local ec='if _G.GAG2_LOADED then return end _G.GAG2_LOADED=true task.wait(4) loadstring(game:HttpGet("'..SURL..'"))()'
 
 if not _G.GAG2_AUTOEXEC_WRITTEN then
     _G.GAG2_AUTOEXEC_WRITTEN=true
     pcall(function()
         if writefile then
-            -- Delete old file first to prevent multiple
             if isfile and isfile("autoexec/GAG2.lua") then
                 pcall(function() delfile("autoexec/GAG2.lua") end)
             end
@@ -40,7 +37,6 @@ if not _G.GAG2_AUTOEXEC_WRITTEN then
     end)
 end
 
--- Queue script: only queue ONCE per hop, not multiple times
 local queuedThisHop=false
 local function qs()
     if queuedThisHop then return end
@@ -78,10 +74,35 @@ local MRK=RNK[MINR] or 1
 local lp=Players.LocalPlayer
 local ss=os.time()
 local hops,fnd=0,0
-local notif,tried,cache={},{},{}
+local notif,cache={},{}
 local hopping=false
 local gst="Starting..."
 local sLbl,hLbl,fLbl,svLbl,uLbl,pList
+
+-- PERSISTENT visited servers (saved to file)
+local visitedServers={}
+pcall(function()
+    if isfile and isfile("g2v.json") then
+        local d=HS:JSONDecode(readfile("g2v.json"))
+        if d then
+            -- Only keep servers visited in last 1 hour
+            local now=os.time()
+            for jobId,time in pairs(d) do
+                if now-time < 3600 then
+                    visitedServers[jobId]=time
+                end
+            end
+        end
+    end
+end)
+
+local function saveVisited()
+    pcall(function()
+        if writefile then
+            writefile("g2v.json",HS:JSONEncode(visitedServers))
+        end
+    end)
+end
 
 pcall(function()
     if isfile and isfile("g2s.json") then
@@ -231,7 +252,6 @@ task.spawn(function()
     while not _G.GAG2_STOP do ugui();task.wait(1) end
 end)
 
--- AUTO RECONNECT on disconnect
 local function setupReconnect()
     pcall(function()
         GS.ErrorMessageChanged:Connect(function(err)
@@ -243,7 +263,6 @@ local function setupReconnect()
                 qs()
                 task.wait(5)
                 pcall(function() TS:Teleport(PID,lp) end)
-                -- If teleport fails, keep trying
                 for i=1,30 do
                     task.wait(2)
                     pcall(function() TS:Teleport(PID,lp) end)
@@ -251,8 +270,6 @@ local function setupReconnect()
             end
         end)
     end)
-    
-    -- Also monitor for kicks
     pcall(function()
         lp.Idled:Connect(function()
             pcall(function()
@@ -361,16 +378,21 @@ local function gsvs(cursor)
     return s and d or nil
 end
 
+-- Build cache excluding ALL visited servers (persistent)
 local function rc()
     cache={}
     local cur=nil
-    for i=1,10 do
+    local seen={}
+    for i=1,15 do  -- More pages = more options
         local d=gsvs(cur)
         if not d or not d.data then break end
         for _,sv in ipairs(d.data) do
-            if sv.id and sv.id~=game.JobId and not tried[sv.id]
+            if sv.id and sv.id~=game.JobId
+               and not visitedServers[sv.id]  -- KEY: never visit same twice
+               and not seen[sv.id]
                and sv.playing>=MINPL and sv.playing<=MAXPL
                and sv.maxPlayers and (sv.maxPlayers-sv.playing)>=2 then
+                seen[sv.id]=true
                 table.insert(cache,sv)
             end
         end
@@ -378,7 +400,16 @@ local function rc()
         if not cur then break end
         task.wait(0.1)
     end
-    lg("Cached "..#cache,"INFO")
+    -- Shuffle for randomness
+    for i=#cache,2,-1 do
+        local j=math.random(i)
+        cache[i],cache[j]=cache[j],cache[i]
+    end
+    lg("Cached "..#cache.." new servers ("..((function()
+        local c=0
+        for _ in pairs(visitedServers) do c=c+1 end
+        return c
+    end)()).." visited)","INFO")
     return #cache
 end
 
@@ -391,34 +422,69 @@ local function doTP(jid)
         TS:TeleportAsync(PID,{lp},o)
     end)
     if ok then return true end
-    ok=pcall(function() TS:Teleport(PID,lp) end)
-    return ok
+    return false
 end
 
 local function dh()
     if hopping then return end
     hopping=true
     hops=hops+1
-    tried[game.JobId]=true
-    saveSt();lg("=== Hop #"..hops.." ===","HOP")
+    -- Mark current server as visited PERMANENTLY (1 hour cooldown via save)
+    visitedServers[game.JobId]=os.time()
+    saveVisited()
+    saveSt()
+    lg("=== Hop #"..hops.." ===","HOP")
     setSt("🔄 Hop #"..hops)
     qs();task.wait(0.5)
+    
     local at=0
     while not _G.GAG2_STOP do
         at=at+1
-        if at%15==0 then tried={} end
-        if at==1 or at%10==0 then rc() end
+        
+        -- Refresh cache when empty (NOT every X attempts - keeps consistency)
+        if #cache==0 then
+            local count=rc()
+            if count==0 then
+                -- Truly no servers, clear OLDEST visited servers and retry
+                lg("No new servers found, clearing oldest visited","ERR")
+                local toRemove={}
+                local now=os.time()
+                for jid,t in pairs(visitedServers) do
+                    if now-t > 600 then  -- older than 10 min
+                        table.insert(toRemove,jid)
+                    end
+                end
+                for _,jid in ipairs(toRemove) do
+                    visitedServers[jid]=nil
+                end
+                saveVisited()
+                task.wait(3)
+                rc()
+            end
+        end
+        
         if #cache>0 then
-            local idx=math.random(1,math.min(#cache,10))
-            local sv2=table.remove(cache,idx)
-            if sv2 and sv2.id then
-                tried[sv2.id]=true
+            local sv2=table.remove(cache,1)  -- pop first (already shuffled)
+            if sv2 and sv2.id and not visitedServers[sv2.id] then
+                -- Mark as visited BEFORE teleporting (prevents retry to same)
+                visitedServers[sv2.id]=os.time()
+                saveVisited()
+                
                 setSt("🔄 Try "..at)
-                lg(("Try#%d->%s(%d)"):format(at,sv2.id:sub(1,10),sv2.playing),"INFO")
-                if doTP(sv2.id) then task.wait(8) end
+                lg(("Try#%d->%s(%d players)"):format(at,sv2.id:sub(1,10),sv2.playing),"INFO")
+                
+                if doTP(sv2.id) then 
+                    task.wait(10)  -- wait longer for teleport
+                end
                 task.wait(1)
             end
         else
+            task.wait(3)
+        end
+        
+        -- Safety: after 50 attempts, just do random teleport
+        if at >= 50 then
+            lg("50 attempts failed, random teleport","ERR")
             pcall(function() TS:Teleport(PID,lp) end)
             task.wait(5)
         end
@@ -472,6 +538,10 @@ local function main()
         lg("Wrong game!","ERR");setSt("⚠️ Wrong game...")
         pcall(function() TS:Teleport(PID,lp) end);return
     end
+    
+    -- Mark THIS server as visited immediately (prevents hopping back)
+    visitedServers[game.JobId]=os.time()
+    saveVisited()
     
     lg("Server:"..game.JobId:sub(1,12),"OK")
     setSt("✅ In GAG2!");cpg()
