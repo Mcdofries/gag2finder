@@ -1,46 +1,41 @@
--- GAG2 Pet Finder v13
+-- GAG2 Pet Finder v14
 local Players=game:GetService("Players")
 local TS=game:GetService("TeleportService")
 local HS=game:GetService("HttpService")
 local CG=game:GetService("CoreGui")
 local GS=game:GetService("GuiService")
 
-if _G.GAG2_RUNNING then
-    _G.GAG2_STOP=true
-    task.wait(1.5)
-end
+if _G.GAG2_RUNNING then _G.GAG2_STOP=true; task.wait(1.5) end
 _G.GAG2_STOP=false
 _G.GAG2_RUNNING=true
-_G.GAG2_VERSION="v13"
 
 local WEBHOOK="https://discordapp.com/api/webhooks/1505539441127587970/1x6UPAE0C84JmgiuHI7GwHHTj-sunvMi09TT-r1fC8tNnR7tQvKD_kEjKa5I3jkCkx-h"
 local PID=97598239454123
 local MINR="legendary"
 local PING={"mythic","super","big","rainbow"}
-local MINPL=3;local MAXPL=25
+local MINPL=3
+local MAXPL=25
 local SURL="https://raw.githubusercontent.com/Mcdofries/gag2finder/refs/heads/main/petfinder"
 local VERCEL="https://gag2joiner.vercel.app/api/joiner"
-local req=(syn and syn.request) or http_request or request
-          or (fluxus and fluxus.request) or (getgenv and getgenv().request)
+local VAPI="https://gag2joiner.vercel.app/api/visited"
+local req=(syn and syn.request) or http_request or request or (fluxus and fluxus.request) or (getgenv and getgenv().request)
 
 local ec='if _G.GAG2_LOADED then return end _G.GAG2_LOADED=true task.wait(4) loadstring(game:HttpGet("'..SURL..'"))()'
 
-if not _G.GAG2_AUTOEXEC_WRITTEN then
-    _G.GAG2_AUTOEXEC_WRITTEN=true
+if not _G.GAG2_AE then
+    _G.GAG2_AE=true
     pcall(function()
         if writefile then
-            if isfile and isfile("autoexec/GAG2.lua") then
-                pcall(function() delfile("autoexec/GAG2.lua") end)
-            end
-            writefile("autoexec/GAG2.lua", ec)
+            if isfile and isfile("autoexec/GAG2.lua") then pcall(function() delfile("autoexec/GAG2.lua") end) end
+            writefile("autoexec/GAG2.lua",ec)
         end
     end)
 end
 
-local queuedThisHop=false
+local qed=false
 local function qs()
-    if queuedThisHop then return end
-    queuedThisHop=true
+    if qed then return end
+    qed=true
     pcall(function()
         if queue_on_teleport then queue_on_teleport(ec)
         elseif syn and syn.queue_on_teleport then syn.queue_on_teleport(ec)
@@ -51,26 +46,19 @@ local function qs()
 end
 
 local PETS={
-    Frog={r="Common",rk=1,c=5793266},
-    Bunny={r="Common",rk=1,c=5793266},
-    Owl={r="Uncommon",rk=2,c=3066993},
-    Deer={r="Rare",rk=3,c=3447003},
-    Robin={r="Legendary",rk=4,c=15844367},
-    Bee={r="Legendary",rk=4,c=15844367},
+    Frog={r="Common",rk=1,c=5793266},Bunny={r="Common",rk=1,c=5793266},
+    Owl={r="Uncommon",rk=2,c=3066993},Deer={r="Rare",rk=3,c=3447003},
+    Robin={r="Legendary",rk=4,c=15844367},Bee={r="Legendary",rk=4,c=15844367},
     Monkey={r="Mythic",rk=5,c=15158332},
     Golden_Dragonfly={r="Mythic",rk=5,c=15158332,d="Golden Dragonfly"},
-    Unicorn={r="Mythic",rk=5,c=15158332},
-    Raccoon={r="Super",rk=6,c=10181046},
+    Unicorn={r="Mythic",rk=5,c=15158332},Raccoon={r="Super",rk=6,c=10181046},
     Black_Dragon={r="Super",rk=6,c=10181046,d="Black Dragon"},
     Ice_Serpent={r="Super",rk=6,c=10181046,d="Ice Serpent"},
 }
 local RNK={common=1,uncommon=2,rare=3,legendary=4,mythic=5,super=6,big=7,rainbow=8}
-local MODS={
-    big={rk=7,c=16753920,e="🟧",name="Big"},
-    rainbow={rk=8,c=16776960,e="🌈",name="Rainbow"},
-}
+local MODS={big={rk=7,c=16753920,name="Big"},rainbow={rk=8,c=16776960,name="Rainbow"}}
 local REMI={Common="⚪",Uncommon="🟢",Rare="🔵",Legendary="🟡",Mythic="🔴",Super="🟣",Big="🟧",Rainbow="🌈"}
-local MRK=RNK[MINR] or 1
+local MRK=RNK[MINR] or 4
 local lp=Players.LocalPlayer
 local ss=os.time()
 local hops,fnd=0,0
@@ -78,31 +66,33 @@ local notif,cache={},{}
 local hopping=false
 local gst="Starting..."
 local sLbl,hLbl,fLbl,svLbl,uLbl,pList
+local shared={}
 
--- Visited servers (in-memory + persistent)
-local visited={}
-pcall(function()
-    if isfile and isfile("g2v.json") then
-        local d=HS:JSONDecode(readfile("g2v.json"))
-        if d then
-            local now=os.time()
-            -- Only keep recent (last 20 min)
-            for jid,t in pairs(d) do
-                if now-t < 1200 then visited[jid]=t end
+local function syncV()
+    if not req then return end
+    pcall(function()
+        local r=req({Url=VAPI,Method="GET"})
+        if r and (r.Body or r.body) then
+            local d=HS:JSONDecode(r.Body or r.body)
+            if d and d.visited then
+                shared={}
+                for _,j in ipairs(d.visited) do shared[j]=true end
             end
         end
-    end
-end)
-
-local function saveVisited()
-    pcall(function()
-        if writefile then writefile("g2v.json",HS:JSONEncode(visited)) end
     end)
 end
 
-local function countVisited()
+local function markV(j)
+    if not req or not j then return end
+    shared[j]=true
+    task.spawn(function()
+        pcall(function() req({Url=VAPI.."?jobId="..j,Method="POST"}) end)
+    end)
+end
+
+local function cntS()
     local c=0
-    for _ in pairs(visited) do c=c+1 end
+    for _ in pairs(shared) do c=c+1 end
     return c
 end
 
@@ -163,7 +153,7 @@ local function mkG()
     tf.BackgroundColor3=Color3.fromRGB(35,90,35);tf.BorderSizePixel=0;tf.Parent=tb
     local tl=Instance.new("TextLabel")
     tl.Size=UDim2.new(1,-38,1,0);tl.Position=UDim2.new(0,8,0,0)
-    tl.BackgroundTransparency=1;tl.Text="🌱 GAG2 Pet Finder"
+    tl.BackgroundTransparency=1;tl.Text="🌱 GAG2 PF (Sync)"
     tl.TextColor3=Color3.new(1,1,1);tl.TextSize=14
     tl.Font=Enum.Font.GothamBold;tl.TextXAlignment=Enum.TextXAlignment.Left;tl.Parent=tb
     local mb=Instance.new("TextButton")
@@ -216,7 +206,7 @@ local function ugui()
         local e=os.time()-ss
         if sLbl then sLbl.Text="⏳ "..gst end
         if svLbl then svLbl.Text="🌐 "..game.JobId:sub(1,13).."..." end
-        if hLbl then hLbl.Text="🔄 Hops: "..hops end
+        if hLbl then hLbl.Text="🔄 Hops: "..hops.." | 🔗 "..cntS() end
         if fLbl then fLbl.Text="🐾 Found: "..fnd end
         if uLbl then uLbl.Text=("⏱️ %02d:%02d:%02d"):format(e/3600,e%3600/60,e%60) end
     end)
@@ -250,25 +240,22 @@ local function cpg()
     end)
 end
 
+task.spawn(function() while not _G.GAG2_STOP do ugui();task.wait(1) end end)
+
 task.spawn(function()
-    while not _G.GAG2_STOP do ugui();task.wait(1) end
+    while not _G.GAG2_STOP do syncV();task.wait(15) end
 end)
 
-local function setupReconnect()
+local function setupRC()
     pcall(function()
         GS.ErrorMessageChanged:Connect(function(err)
             if err and err ~= "" then
-                lg("DISCONNECTED: "..tostring(err),"ERR")
-                setSt("🔌 Disconnected...")
+                lg("DC: "..tostring(err),"ERR");setSt("🔌 DC...")
                 wh({username="Pet Finder - Grow a Garden 2",
                     content="🔌 **Disconnected!** Reconnecting..."})
-                qs()
-                task.wait(5)
+                qs();task.wait(5)
                 pcall(function() TS:Teleport(PID,lp) end)
-                for i=1,30 do
-                    task.wait(2)
-                    pcall(function() TS:Teleport(PID,lp) end)
-                end
+                for i=1,30 do task.wait(2);pcall(function() TS:Teleport(PID,lp) end) end
             end
         end)
     end)
@@ -276,8 +263,7 @@ local function setupReconnect()
         lp.Idled:Connect(function()
             pcall(function()
                 local vu=game:GetService("VirtualUser")
-                vu:CaptureController()
-                vu:ClickButton2(Vector2.new())
+                vu:CaptureController();vu:ClickButton2(Vector2.new())
             end)
         end)
     end)
@@ -310,8 +296,7 @@ local function gpb(n)
         p=p:gsub("^"..m:sub(1,1):upper()..m:sub(2).."_","")
         p=p:gsub("^"..m.."_","")
     end
-    p=p:gsub("^Mythical_","")
-    p=p:gsub("^mythical_","")
+    p=p:gsub("^Mythical_","");p=p:gsub("^mythical_","")
     local d=PETS[p]
     if d then return d.d or p,d end
 end
@@ -338,9 +323,7 @@ local function bi(o)
     local mods,hm=dmods(o)
     local rk,ry,co=pd.rk,pd.r,pd.c
     if hm and MODS[hm] and MODS[hm].rk>rk then
-        rk=MODS[hm].rk
-        ry=MODS[hm].name
-        co=MODS[hm].c
+        rk=MODS[hm].rk;ry=MODS[hm].name;co=MODS[hm].c
     end
     return {nm=nm,pd=pd,ry=ry,rk=rk,co=co,mods=mods,
         pr=gl(o,"PetCostTimer"),tm=gl(o,"PetLeaveTimer"),key=o.Name}
@@ -368,10 +351,10 @@ local function whp(info)
     })
 end
 
-local function gsvs(cursor)
+local function gsvs(cur)
     if not req then return nil end
     local url="https://games.roblox.com/v1/games/"..PID.."/servers/Public?sortOrder=Desc&limit=100"
-    if cursor then url=url.."&cursor="..cursor end
+    if cur then url=url.."&cursor="..cur end
     local ok,r=pcall(function() return req({Url=url,Method="GET"}) end)
     if not ok or not r then return nil end
     local body=r.Body or r.body or r.responseBody
@@ -380,44 +363,41 @@ local function gsvs(cursor)
     return s and d or nil
 end
 
-local function rc(includeVisited)
+local function rc(skip)
     cache={}
     local cur=nil
     local seen={}
-    local total=0
+    local tot,flt=0,0
     for i=1,15 do
         local d=gsvs(cur)
         if not d or not d.data then break end
         for _,sv in ipairs(d.data) do
-            total=total+1
+            tot=tot+1
             if sv.id and sv.id~=game.JobId and not seen[sv.id]
                and sv.playing>=MINPL and sv.playing<=MAXPL
                and sv.maxPlayers and (sv.maxPlayers-sv.playing)>=2 then
-                if includeVisited or not visited[sv.id] then
-                    seen[sv.id]=true
-                    table.insert(cache,sv)
-                end
+                if skip and shared[sv.id] then flt=flt+1
+                else seen[sv.id]=true;table.insert(cache,sv) end
             end
         end
         cur=d.nextPageCursor
         if not cur then break end
         task.wait(0.1)
     end
-    -- Shuffle
     for i=#cache,2,-1 do
         local j=math.random(i)
         cache[i],cache[j]=cache[j],cache[i]
     end
-    lg("Cache: "..#cache.." (total:"..total..", visited:"..countVisited()..")","INFO")
+    lg(("Cache:%d (tot:%d flt:%d shr:%d)"):format(#cache,tot,flt,cntS()),"INFO")
     return #cache
 end
 
-local function doTP(jid)
-    local ok=pcall(function() TS:TeleportToPlaceInstance(PID,jid,lp) end)
+local function doTP(j)
+    local ok=pcall(function() TS:TeleportToPlaceInstance(PID,j,lp) end)
     if ok then return true end
     ok=pcall(function()
         local o=Instance.new("TeleportOptions")
-        o.ServerInstanceId=jid
+        o.ServerInstanceId=j
         TS:TeleportAsync(PID,{lp},o)
     end)
     return ok
@@ -427,73 +407,42 @@ local function dh()
     if hopping then return end
     hopping=true
     hops=hops+1
-    visited[game.JobId]=os.time()
-    saveVisited()
-    saveSt()
+    markV(game.JobId);saveSt()
     lg("=== Hop #"..hops.." ===","HOP")
     setSt("🔄 Hop #"..hops)
     qs();task.wait(0.5)
-    
-    -- Build initial cache (excluding visited)
-    rc(false)
-    
+    syncV();rc(true)
     local at=0
-    local triedFallback=false
-    
     while not _G.GAG2_STOP do
         at=at+1
-        
-        -- If cache empty, try refresh
         if #cache==0 then
-            lg("Cache empty, refreshing...","INFO")
-            local count=rc(false)
-            
-            -- If STILL empty, clear visited and include all
+            lg("Empty cache, resync","INFO")
+            syncV()
+            local count=rc(true)
             if count==0 then
-                lg("No fresh servers! Clearing visited list","ERR")
-                visited={}
-                visited[game.JobId]=os.time()  -- keep current
-                saveVisited()
-                rc(true)  -- include visited now
-                
-                -- If STILL empty, fallback to random teleport
-                if #cache==0 then
-                    if not triedFallback then
-                        triedFallback=true
-                        lg("No servers at all, random teleport","ERR")
-                        pcall(function() TS:Teleport(PID,lp) end)
-                        task.wait(8)
-                    else
-                        task.wait(5)
-                    end
-                end
+                lg("No fresh servers, random TP","ERR")
+                pcall(function() TS:Teleport(PID,lp) end)
+                task.wait(8)
             end
         end
-        
         if #cache>0 then
             local sv2=table.remove(cache,1)
             if sv2 and sv2.id then
-                visited[sv2.id]=os.time()
-                saveVisited()
-                
-                setSt("🔄 Try "..at)
-                lg(("Try#%d->%s(%d)"):format(at,sv2.id:sub(1,10),sv2.playing),"INFO")
-                
-                if doTP(sv2.id) then 
-                    task.wait(10)
+                if shared[sv2.id] then
+                    lg("Skip "..sv2.id:sub(1,10).." (just visited)","INFO")
+                else
+                    markV(sv2.id)
+                    setSt("🔄 Try "..at)
+                    lg(("Try#%d->%s(%d)"):format(at,sv2.id:sub(1,10),sv2.playing),"INFO")
+                    if doTP(sv2.id) then task.wait(10) end
+                    task.wait(1)
                 end
-                task.wait(1)
             end
-        else
-            task.wait(2)
-        end
-        
-        -- Safety: after 30 attempts, force random teleport
-        if at >= 30 then
-            lg("30 attempts done, random teleport","ERR")
+        else task.wait(2) end
+        if at>=30 then
+            lg("30 fails, random TP","ERR")
             pcall(function() TS:Teleport(PID,lp) end)
-            task.wait(8)
-            at=0
+            task.wait(8);at=0
         end
     end
 end
@@ -533,34 +482,26 @@ local function sa()
 end
 
 local function main()
-    lg("=== GAG2 "..(_G.GAG2_VERSION).." ===","INFO")
-    mkG();setSt("Starting...")
-    setupReconnect()
-    
+    lg("=== GAG2 v14 ===","INFO")
+    mkG();setSt("Starting...");setupRC()
     if not game:IsLoaded() then setSt("⏳ Loading...");game.Loaded:Wait() end
     task.wait(2)
     if _G.GAG2_STOP then return end
-    
     if game.PlaceId~=PID then
         lg("Wrong game!","ERR");setSt("⚠️ Wrong game...")
         pcall(function() TS:Teleport(PID,lp) end);return
     end
-    
-    visited[game.JobId]=os.time()
-    saveVisited()
-    
-    lg("Server:"..game.JobId:sub(1,12).." | Visited: "..countVisited(),"OK")
+    syncV();markV(game.JobId)
+    lg("Server:"..game.JobId:sub(1,12).." | Shr:"..cntS(),"OK")
     setSt("✅ In GAG2!");cpg()
-    task.spawn(function() rc(false) end)
-
-    if not _G.GAG2_SENT_ONLINE then
-        _G.GAG2_SENT_ONLINE=true
+    task.spawn(function() rc(true) end)
+    if not _G.GAG2_SO then
+        _G.GAG2_SO=true
         task.spawn(function()
             wh({username="Pet Finder - Grow a Garden 2",
-                content="✅ **Online!** GAG2"})
+                content="✅ **Online!** GAG2 | Acc: `"..lp.Name.."`"})
         end)
     end
-
     local spawns
     for i=1,20 do
         spawns=gsp()
@@ -568,7 +509,7 @@ local function main()
         task.wait(0.3)
     end
     if not spawns then
-        lg("No WildPetSpawns!","ERR");setSt("⚠️ No pets...")
+        lg("No spawns!","ERR");setSt("⚠️ No pets...")
         dh();return
     end
     lg("Spawns:"..#spawns:GetChildren(),"OK");setSt("🔍 Scanning...")
